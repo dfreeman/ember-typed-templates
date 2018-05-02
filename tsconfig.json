@@ -13,19 +13,23 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
-    "noEmitOnError": true,
+//    "noEmitOnError": true,
     "noEmit": true,
     "inlineSourceMap": true,
     "inlineSources": true,
     "baseUrl": ".",
+    "rootDirs": [".", "types/generated"],
     "module": "es6",
     "paths": {
-      "dummy/tests/*": ["tests/*"],
-      "dummy/*": ["tests/dummy/app/*"],
+      "dummy/tests/*": ["tests/*", "types/generated/tests/*"],
+      "dummy/*": ["tests/dummy/app/*", "types/generated/tests/dummy/app/*"],
+      "ember-typed-templates": ["addon"],
+      "ember-typed-templates/*": ["addon/*"],
       "*": ["types/*"]
     }
   },
   "include": [
+    "addon",
     "tests",
     "types"
   ]

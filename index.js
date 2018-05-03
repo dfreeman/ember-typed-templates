@@ -128,10 +128,13 @@ function determineType(relativePath) {
 
 function determineName(relativePath) {
   return relativePath
-    .replace(/(^|\/)(templates|components|controllers|helpers)\//g, '')
+    .replace(/(^|\/)(templates\/components|templates|components|controllers|helpers)(?:\/)/g, '$1')
     .replace(/\.(hbs|ts)$/, '')
     .replace(/\/(template|component|controller|helper)$/, '');
 }
+
+const Scope = require('./lib/generation/scope');
+const TypeResolution = require('./lib/generation/type-resolution');
 
 class DeclarationBuilder {
   constructor(project, type, name) {
@@ -139,69 +142,107 @@ class DeclarationBuilder {
     this.type = type;
     this.name = name;
 
-    let root = new Scope('root', {
+    this.stackNodes = new WeakMap();
+    this.stack = [new Scope('root', {
       locals: '{}',
       components: 'ComponentRegistry',
       helpers: 'HelperRegistry',
       host: 'host'
-    });
+    })];
+  }
 
-    this.types = [];
-    this.scopes = [root];
-    this.stack = [root];
-    this.assertions = [];
+  get scope() {
+    return this.stack[this.stack.length - 1];
   }
 
   makeVisitor() {
-    let visitor = {};
-    for (let type of ['MustacheStatement']) {
-      visitor[type] = node => this[`visit${type}`](node);
-    }
-    return visitor;
+    return {
+      MustacheStatement: node => this.visitMustacheStatement(node),
+      BlockStatement: {
+        enter: node => this.enterBlockStatement(node),
+        exit: node => this.exitBlockStatement(node)
+      }
+    };
   }
 
   serialize() {
-    return stripIndent`
-      import { ControllerRegistry, ComponentRegistry, HelperRegistry } from '${this.modulePrefix()}/type-registries';
-      import { findHost, resolve } from 'ember-typed-templates';
-      import { assert, exists } from 'ember-typed-templates/assertions';
-
-      type host = findHost<'${this.name}', ControllerRegistry, ComponentRegistry>;
-      ${this.scopes.map(scope => scope.serialize('      ')).join('\n\n      ')}
-
-      ${this.types.map(({ name, type }) => `type ${name} = ${type.serialize('      ')};`).join('\n      ')}
-
-      type assertions = never
-        ${this.assertions.map(assertion => `& ${assertion.serialize('        ')}`).join('\n        ')};
-
-
-      import { TemplateFactory } from 'htmlbars-inline-precompile';
-      type template = TemplateFactory;
-      declare const template: TemplateFactory;
-      export default template;
-    ` + '\n';
+    return this.scope.serialize({
+      name: this.name,
+      modulePrefix: this.modulePrefix()
+    });
   }
 
   visitMustacheStatement(node) {
     let path = node.path;
     if (path.parts.length === 1) {
-      if (keywords.includes(path.original)) return;
+      if (path.original === 'yield') {
+        for (let [index, param] of node.params.entries()) {
+          if (param.type === 'PathExpression' && param.parts.length === 1) {
+            let ref = this.scope.resolve(param.original, TypeResolution.Local | TypeResolution.Property);
+            this.scope.assertExists(`Unable to resolve '${param.original}'`, param.loc.start, ref);
+            this.scope.recordYield(index, ref);
+          } else {
+            // TODO deal with other stuff, I guess
+          }
+        }
+      }
+
+      if (keywords.includes(path.original)) {
+        return;
+      }
 
       let hasArgs = node.hash.pairs.length || node.params.length;
-      let hasDash = path.original.indexOf('-') !== -1;
-      let candidates = [
-        (hasDash || !hasArgs) && 'locals',
-        (hasDash) && 'components',
-        (true) && 'helpers',
-        (!hasArgs) && 'host'
-      ].filter(Boolean);
+      let types = this.applicableTypesFor(path.original, hasArgs);
+      let ref = this.scope.resolve(path.original, types);
+      this.scope.assertExists(`Unable to resolve {{${path.original}}}`, node.loc.start, ref);
+    } else {
+      // TODO handle dotted paths
+    }
+  }
 
-      let name = inflector.camelize(inflector.underscore(path.original), false);
-      this.types.push({ name, type: this.resolve(path.original, candidates) });
+  applicableTypesFor(identifier, hasArgs = false) {
+    let hasDash = identifier.indexOf('-') !== -1;
+    let types = 0;
+    for (let [condition, type] of [
+      [hasDash || !hasArgs, TypeResolution.Local],
+      [hasDash, TypeResolution.Component],
+      [true, TypeResolution.Helper],
+      [!hasArgs, TypeResolution.Property]
+    ]) {
+      if (condition) {
+        types |= type;
+      }
+    }
+    return types;
+  }
 
-      let resolved = new ReferenceType(name);
-      let assertion = this.assert(`Unable to resolve {{${path.original}}}`, node.loc.start, this.exists(resolved));
-      this.assertions.push(assertion);
+  enterBlockStatement(node) {
+    let path = node.path;
+    if (path.parts.length === 1) {
+      if (keywords.includes(path.original)) return;
+
+      let ref = this.scope.resolve(path.original, TypeResolution.Local | TypeResolution.Component);
+      // TODO stricter assertions
+      this.scope.assertExists(`Unable to resolve {{#${path.original}}}`, node.loc.start, ref);
+
+      let locals = {};
+      for (let [index, param] of node.program.blockParams.entries()) {
+        this.scope.assertHasBlockParam(`Unable to resolve block param '${param}'`, node.loc.start, ref, index);
+        locals[param] = this.scope.resolveBlockParam(ref, index);
+      }
+
+      let childScope = this.scope.createChild(path.original, locals);
+      this.stackNodes.set(node, childScope);
+      this.stack.push(childScope);
+    } else {
+      // TODO handle dotted paths
+    }
+  }
+
+  exitBlockStatement(node) {
+    let maybeScope = this.stackNodes.get(node);
+    if (maybeScope === this.scope) {
+      this.stack.pop();
     }
   }
 
@@ -212,112 +253,14 @@ class DeclarationBuilder {
       return this.project.name();
     }
   }
-
-  assert(message, loc, assert) {
-    return new AssertionType(message, loc, assert);
-  }
-
-  exists(info, type) {
-    return new ExistenceAssertion(info, type);
-  }
-
-  resolve(name, types) {
-    return new ResolutionType(this.stack[this.stack.length - 1], name, types);
-  }
-}
-
-class Scope {
-  constructor(name, parts) {
-    this.name = name;
-    this.parts = parts;
-  }
-
-  serialize(indent = '') {
-    return [
-      `type ${this.name} = {`,
-      `  locals: ${this.parts.locals};`,
-      `  components: ${this.parts.components};`,
-      `  helpers: ${this.parts.helpers};`,
-      `  host: ${this.parts.host};`,
-      `};`
-    ].join(`\n${indent}`);
-  }
-}
-
-class ReferenceType {
-  constructor(name) {
-    this.name = name;
-  }
-
-  serialize() {
-    return this.name;
-  }
-}
-
-class ResolutionType {
-  constructor(scope, name, types) {
-    this.scope = scope;
-    this.name = name;
-    this.types = types;
-  }
-
-  serialize() {
-    return `resolve<${this.scope.name}, '${this.name}', ${this.types.map(type => `'${type}'`).join(' | ')}>`;
-  }
-}
-
-class AssertionType {
-  constructor(message, loc, assertion) {
-    this.message = message;
-    this.loc = loc;
-    this.assertion = assertion;
-  }
-
-  serialize(indent) {
-    const { message, loc, assertion } = this;
-
-    return [
-      `assert<`,
-      `  ${JSON.stringify(message)}, { line: ${loc.line}, column: ${loc.column} },`,
-      `  ${assertion.serialize(`  ${indent}`)}`,
-      `>`
-    ].join(`\n${indent}`);
-  }
-}
-
-class ExistenceAssertion {
-  constructor(subject) {
-    this.subject = subject;
-  }
-
-  serialize(indent) {
-    return `exists<${this.subject.serialize('  ' + indent)}>`;
-  }
 }
 
 const keywords = [
   'yield',
   'outlet',
+  'each',
+  'if'
 ];
-
-/*
-
-import { ControllerRegistry, ComponentRegistry, HelperRegistry } from '<host>/type-registries';
-import { findHost, resolve } from 'ember-typed-templates';
-
-type host = findHost<ControllerRegistry, ComponentRegistry, '<name>'>;
-type root = {
-  locals: {};
-  components: ComponentRegistry;
-  helpers: HelperRegistry;
-  host: host;
-};
-
-type assertions =
-  & resolve<root, 'accessedProperty', locals' | 'helpers' | 'host'>
-
-*/
-
 
 // {{#foo-bar}}
 // local -> component

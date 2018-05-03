@@ -1,15 +1,24 @@
+import { NonVoid } from 'ember-typed-templates';
+
 export type assert<
   info extends string,
-  loc extends { line: number, column: number },
-  T extends info | loc
+  loc extends [number, number],
+  T extends [info, { line: loc[0], column: loc[1] }]
 > = T;
 
 type Ok = any;
-type Failed = 'assertion failed';
+type Failed = void;
 
 export type exists<T>
-  = T extends object | string | symbol | number | boolean | null | undefined
+  = T extends NonVoid
     ? Ok
+    : Failed;
+
+export type hasBlockParam<T, index>
+  = T extends { yields: any }
+    ? index extends keyof T['yields']
+      ? Ok
+      : Failed
     : Failed;
 
 export type assignable<target, actual>

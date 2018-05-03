@@ -1,1 +1,7 @@
-{{greeting}}, {{target}}
+{{#foo-bar as |value|}}
+  {{yield value}}
+{{/foo-bar}}
+
+{{#test-component as |inner|}}
+  {{inner}}
+{{/test-component}}

@@ -3,7 +3,8 @@ type assign<dest, src> =
   & { [key in keyof src]: src[key] }
   & { [key in diff<keyof dest, keyof src>]: dest[key] };
 
-export type NonVoid = object | string | number | boolean | symbol | undefined | null;
+declare const NotFound: unique symbol;
+export type NotFound = typeof NotFound;
 
 export type Scope = { locals: any, templates: any, components: any, helpers: any, host: any };
 export type makeScope<host, components, templates, helpers> = {
@@ -27,7 +28,7 @@ export type findHost<name, components, controllers>
       ? controllers[name]
       : never;
 
-export type extendScope<scope, newLocals> = scope extends { locals: infer oldLocals }
+export type extendScope<scope extends Scope, newLocals> = scope extends { locals: infer oldLocals }
   ? assign<scope, { locals: assign<oldLocals, newLocals> }>
   : never;
 
@@ -35,8 +36,8 @@ export type blockParam<template, index>
   = template extends { yields: any }
     ? index extends keyof template['yields']
       ? template['yields'][index]
-      : void
-    : void;
+      : NotFound
+    : NotFound;
 
 export type resolve<scope extends Scope, name, sources extends keyof Scope> =
   resolveOr<scope, name, sources, 'locals',
@@ -44,7 +45,7 @@ export type resolve<scope extends Scope, name, sources extends keyof Scope> =
   resolveOr<scope, name, sources, 'components',
   resolveOr<scope, name, sources, 'helpers',
   resolveOr<scope, name, sources, 'host',
-  void>>>>>;
+  NotFound>>>>>;
 
 type resolveOr<
   scope extends Scope,

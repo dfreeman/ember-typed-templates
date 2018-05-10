@@ -1,4 +1,4 @@
-import { NonVoid } from 'ember-typed-templates';
+import { NotFound } from 'ember-typed-templates';
 
 export type assert<
   info extends string,
@@ -10,9 +10,9 @@ type Ok = any;
 type Failed = void;
 
 export type exists<T>
-  = T extends NonVoid
-    ? Ok
-    : Failed;
+  = T extends NotFound
+    ? Failed
+    : Ok;
 
 export type hasBlockParam<T, index>
   = T extends { yields: any }

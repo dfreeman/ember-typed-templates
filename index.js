@@ -7,6 +7,7 @@ const Funnel = require('broccoli-funnel');
 const syntax = require('@glimmer/syntax');
 const { stripIndent } = require('common-tags');
 const inflector = require('inflected');
+const { determineName, determineType } = require('./lib/utils/hacky-path-analysis');
 
 module.exports = {
   name: 'ember-typed-templates',
@@ -105,145 +106,11 @@ class TemplateTypeGenerator extends Filter {
   }
 
   processString(content, relativePath) {
-    let name = determineName(relativePath);
-    let builder = new DeclarationBuilder(this.project, this.type, name);
-    syntax.traverse(syntax.preprocess(content), builder.makeVisitor());
+    const DeclarationBuilder = require('./lib/declaration-builder');
+
+    let builder = new DeclarationBuilder(this.modulePrefix(), relativePath);
+    builder.process(content);
     return builder.serialize();
-  }
-}
-
-function determineType(relativePath) {
-  if (!/\.(hbs|ts)/.test(relativePath)) return;
-
-  let podName = /\/(template|component|controller|helper)\.(?:hbs|ts)$/.exec(relativePath);
-  if (podName) {
-    return podName[1];
-  }
-
-  let grouping = /(?:^|\/)(template|component|controller|helper)s\//.exec(relativePath);
-  if (grouping) {
-    return grouping[1];
-  }
-}
-
-function determineName(relativePath) {
-  return relativePath
-    .replace(/(^|\/)(templates\/components|templates|components|controllers|helpers)(?:\/)/g, '$1')
-    .replace(/\.(hbs|ts)$/, '')
-    .replace(/\/(template|component|controller|helper)$/, '');
-}
-
-const Scope = require('./lib/generation/scope');
-const TypeResolution = require('./lib/generation/type-resolution');
-
-class DeclarationBuilder {
-  constructor(project, type, name) {
-    this.project = project;
-    this.type = type;
-    this.name = name;
-
-    this.stackNodes = new WeakMap();
-    this.stack = [new Scope('root', {
-      locals: '{}',
-      components: 'ComponentRegistry',
-      helpers: 'HelperRegistry',
-      host: 'host'
-    })];
-  }
-
-  get scope() {
-    return this.stack[this.stack.length - 1];
-  }
-
-  makeVisitor() {
-    return {
-      MustacheStatement: node => this.visitMustacheStatement(node),
-      BlockStatement: {
-        enter: node => this.enterBlockStatement(node),
-        exit: node => this.exitBlockStatement(node)
-      }
-    };
-  }
-
-  serialize() {
-    return this.scope.serialize({
-      name: this.name,
-      modulePrefix: this.modulePrefix()
-    });
-  }
-
-  visitMustacheStatement(node) {
-    let path = node.path;
-    if (path.parts.length === 1) {
-      if (path.original === 'yield') {
-        for (let [index, param] of node.params.entries()) {
-          if (param.type === 'PathExpression' && param.parts.length === 1) {
-            let ref = this.scope.resolve(param.original, TypeResolution.Local | TypeResolution.Property);
-            this.scope.assertExists(`Unable to resolve '${param.original}'`, param.loc.start, ref);
-            this.scope.recordYield(index, ref);
-          } else {
-            // TODO deal with other stuff, I guess
-          }
-        }
-      }
-
-      if (keywords.includes(path.original)) {
-        return;
-      }
-
-      let hasArgs = node.hash.pairs.length || node.params.length;
-      let types = this.applicableTypesFor(path.original, hasArgs);
-      let ref = this.scope.resolve(path.original, types);
-      this.scope.assertExists(`Unable to resolve {{${path.original}}}`, node.loc.start, ref);
-    } else {
-      // TODO handle dotted paths
-    }
-  }
-
-  applicableTypesFor(identifier, hasArgs = false) {
-    let hasDash = identifier.indexOf('-') !== -1;
-    let types = 0;
-    for (let [condition, type] of [
-      [hasDash || !hasArgs, TypeResolution.Local],
-      [hasDash, TypeResolution.Component],
-      [true, TypeResolution.Helper],
-      [!hasArgs, TypeResolution.Property]
-    ]) {
-      if (condition) {
-        types |= type;
-      }
-    }
-    return types;
-  }
-
-  enterBlockStatement(node) {
-    let path = node.path;
-    if (path.parts.length === 1) {
-      if (keywords.includes(path.original)) return;
-
-      let ref = this.scope.resolve(path.original, TypeResolution.Local | TypeResolution.Component);
-      // TODO stricter assertions
-      this.scope.assertExists(`Unable to resolve {{#${path.original}}}`, node.loc.start, ref);
-
-      let locals = {};
-      for (let [index, param] of node.program.blockParams.entries()) {
-        this.scope.assertHasBlockParam(`Unable to resolve block param '${param}'`, node.loc.start, ref, index);
-        locals[param] = this.scope.resolveBlockParam(ref, index);
-      }
-
-      let childScope = this.scope.createChild(path.original, locals);
-      this.stackNodes.set(node, childScope);
-      this.stack.push(childScope);
-    } else {
-      // TODO handle dotted paths
-    }
-  }
-
-  exitBlockStatement(node) {
-    let maybeScope = this.stackNodes.get(node);
-    if (maybeScope === this.scope) {
-      this.stack.pop();
-    }
   }
 
   modulePrefix() {
@@ -254,28 +121,3 @@ class DeclarationBuilder {
     }
   }
 }
-
-const keywords = [
-  'yield',
-  'outlet',
-  'each',
-  'if'
-];
-
-// {{#foo-bar}}
-// local -> component
-
-// {{foo-bar}}
-// local -> component -> helper -> property
-
-// {{foo-bar 'baz'}}
-// local -> component -> helper
-
-// {{foo}}
-// local -> helper -> property
-
-// {{foo 'bar'}}
-// helper
-
-// {{foo.bar 'baz'}}
-// local

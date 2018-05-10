@@ -11,17 +11,12 @@ type host = findHost<"foo-bar", ComponentRegistry, ControllerRegistry>;
 declare namespace root {
   type scope = makeScope<host, ComponentRegistry, TemplateRegistry, ControllerRegistry>;
 
-  type refFoo = resolve<scope, "foo", Local | Property>;
+  type greetingRefLHP = resolve<scope, "greeting", Local | Helper | Property>;
 
   type assertions =
-    & assert<"Unable to resolve 'foo'", [1, 8], exists<refFoo>>;
+    & assert<"Unable to resolve {{greeting}}", [1, 2], exists<greetingRefLHP>>;
 }
 
-type template = TemplateFactory & {
-  yields: [
-    root.refFoo
-  ]
-};
-
+type template = TemplateFactory;
 declare const template: template;
 export default template;

@@ -12,9 +12,6 @@ declare namespace root {
   type scope = makeScope<host, ComponentRegistry, TemplateRegistry, ControllerRegistry>;
 }
 
-type template = TemplateFactory & {
-  yields: void
-};
-
+type template = TemplateFactory;
 declare const template: template;
 export default template;

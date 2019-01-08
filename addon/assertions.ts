@@ -21,7 +21,7 @@ export type hasBlockParam<T, index>
       : Failed
     : Failed;
 
-export type assignable<target, actual>
+export type assignable<target, actual extends target>
   = actual extends target
     ? Ok
     : Failed;

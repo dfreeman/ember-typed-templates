@@ -46,9 +46,10 @@ class RegistryWriter extends Writer {
 
     let registries = {
       component: { name: 'ComponentRegistry', items: [] },
+      signatures: { name: 'SignatureRegistry', items: [] },
       template: { name: 'TemplateRegistry', items: [] },
       controller: { name: 'ControllerRegistry', items: [] },
-      helper: { name: 'HelperRegistry', items: [] }
+      helper: { name: 'HelperRegistry', items: [] },
     };
 
     for (let absoluteFile of this.listFiles()) {

@@ -1,10 +1,10 @@
 'use strict';
 
+const path = require('path');
 const fs = require('fs-extra');
 const Filter = require('broccoli-persistent-filter');
 const Writer = require('broccoli-caching-writer');
 const Funnel = require('broccoli-funnel');
-const syntax = require('@glimmer/syntax');
 const { stripIndent } = require('common-tags');
 const inflector = require('inflected');
 const { determineName, determineType } = require('./lib/utils/hacky-path-analysis');
@@ -12,19 +12,15 @@ const { determineName, determineType } = require('./lib/utils/hacky-path-analysi
 module.exports = {
   name: 'ember-typed-templates',
 
-  setupTypeGeneratorRegistry(type, registry) {
+  setupDeclarationGeneratorRegistry(type, registry) {
     if (type !== 'parent') return;
 
-    let generators = registry._generators;
-    let existing = generators.find(gen => gen.name === 'template-type-generator');
-    generators.splice(generators.indexOf(existing), 1);
-
-    registry.add({
+    registry.addGenerator({
       name: 'type-registry-generator',
       toTree: (type, tree) => new RegistryWriter(tree, { project: this.project, type })
     });
 
-    registry.add({
+    registry.addGenerator({
       name: 'template-type-generator',
       toTree: (type, tree) => {
         let types = new TemplateTypeGenerator(tree, { project: this.project, type });
@@ -42,8 +38,9 @@ class RegistryWriter extends Writer {
   }
 
   build() {
-    if (this.type !== 'app' && this.type !== 'addon') return;
+    if (this.type !== 'js' && this.type !== 'src') return;
 
+    let modulePrefix = this.modulePrefix();
     let registries = {
       component: { name: 'ComponentRegistry', items: [] },
       template: { name: 'TemplateRegistry', items: [] },
@@ -52,7 +49,7 @@ class RegistryWriter extends Writer {
     };
 
     for (let absoluteFile of this.listFiles()) {
-      let file = absoluteFile.substring(this.inputPaths[0].length + 1);
+      let file = absoluteFile.substring(this.inputPaths[0].length + 1 + modulePrefix.length + 1);
       let type = determineType(file);
       if (type) {
         let name = determineName(file);
@@ -63,11 +60,14 @@ class RegistryWriter extends Writer {
     }
 
     let output = Object.keys(registries).map(key => this.buildRegistryString(registries[key]));
-    fs.writeFileSync(`${this.outputPath}/type-registries.d.ts`, output.join('\n\n'));
+    let registryFile = `${this.outputPath}/${modulePrefix}/type-registries.d.ts`;
+
+    fs.ensureDirSync(path.dirname(registryFile));
+    fs.writeFileSync(registryFile, output.join('\n\n'));
   }
 
   modulePrefix() {
-    if (this.type === 'app' && this.project.isEmberCLIAddon()) {
+    if (this.type === 'js' && this.project.isEmberCLIAddon()) {
       return 'dummy';
     } else {
       return this.project.name();
@@ -114,7 +114,7 @@ class TemplateTypeGenerator extends Filter {
   }
 
   modulePrefix() {
-    if (this.type === 'app' && this.project.isEmberCLIAddon()) {
+    if (this.type === 'js' && this.project.isEmberCLIAddon()) {
       return 'dummy';
     } else {
       return this.project.name();

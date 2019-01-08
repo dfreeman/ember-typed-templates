@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "description": "The default blueprint for ember-cli addons.",
   "keywords": [
-    "ember-addon"
+    "ember-addon",
+    "ember-cli-typescript-declaration-generator"
   ],
   "license": "MIT",
   "author": "",
@@ -28,7 +29,7 @@
     "@types/rsvp": "^4.0.1",
     "broccoli-asset-rev": "^2.4.5",
     "ember-ajax": "^3.0.0",
-    "ember-cli": "~3.1.2",
+    "ember-cli": "~3.6.1",
     "ember-cli-dependency-checker": "^2.0.0",
     "ember-cli-eslint": "^4.2.1",
     "ember-cli-htmlbars": "^2.0.1",
@@ -37,7 +38,8 @@
     "ember-cli-qunit": "^4.1.1",
     "ember-cli-shims": "^1.2.0",
     "ember-cli-sri": "^2.1.0",
-    "ember-cli-typescript": "link:/Users/dfreeman/code/ember-cli-typescript",
+    "ember-cli-typescript": "2.0.0-rc.2",
+    "ember-cli-typescript-declaration-generator": "dfreeman/ember-cli-typescript-declaration-generator",
     "ember-cli-uglify": "^2.0.0",
     "ember-disable-prototype-extensions": "^1.1.2",
     "ember-export-application-global": "^2.0.0",
@@ -50,7 +52,8 @@
     "eslint-plugin-ember": "^5.0.0",
     "eslint-plugin-node": "^6.0.1",
     "loader.js": "^4.2.3",
-    "typescript": "^2.8.3"
+    "ts-node": "^7.0.1",
+    "typescript": "^3.2.2"
   },
   "engines": {
     "node": "6.* || >= 7.*"
@@ -64,7 +67,7 @@
     "broccoli-funnel": "^2.0.1",
     "broccoli-persistent-filter": "^1.4.3",
     "common-tags": "^1.7.2",
-    "ember-cli-babel": "^6.6.0",
+    "ember-cli-babel": "^7.2.0",
     "fs-extra": "^6.0.0",
     "inflected": "^2.0.4"
   }
